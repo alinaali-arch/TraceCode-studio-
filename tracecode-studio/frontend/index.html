@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TraceCode Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%238b5cf6'/%3E%3Cpath d='M10 11h12M16 11v11M12 22h8' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Domine:wght@400..700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    /* Apply the saved theme before the first paint (dark is the default) */
+    (function () {
+      var t = "dark";
+      try { if (localStorage.getItem("tc-theme") === "light") t = "light"; } catch (e) {}
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+</head>
+<body>
+  <canvas id="bg-canvas" class="bg-canvas" aria-hidden="true"></canvas>
+  <div class="ambient" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div id="progress" class="progress" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <button id="btn-side" class="btn btn-ghost icon-btn" aria-label="Saved programs and settings" aria-expanded="false" aria-controls="side" title="Saved programs and settings (Ctrl+B)">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg>
+    </button>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32">
+          <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#8b5cf6"/>
+              <stop offset="1" stop-color="#c084fc"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="28" height="28" rx="8" fill="url(#logo-grad)"/>
+          <path d="M10 11h12M16 11v11M12 22h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="name">TraceCode Studio</div>
+        <div class="tag">TraceLang &rarr; x86-64</div>
+      </div>
+    </div>
+
+    <div class="top-center">
+      <label class="sample-pick">
+        <span class="sr-only">Load a sample program</span>
+        <select id="sample" class="select" title="Load a sample program">
+          <option value="">Samples&hellip;</option>
+        </select>
+      </label>
+      <button id="btn-palette" class="palette-btn" title="Command palette (Ctrl+K)">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <span>Commands</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+    </div>
+
+    <div class="toolbar">
+      <button id="btn-compile" class="btn btn-primary" title="Compile (Ctrl+Enter)">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>
+        <span class="btn-label">Compile</span>
+      </button>
+      <button id="btn-run" class="btn btn-run" title="Build with NASM, link and run (Ctrl+Shift+Enter)">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h12m-5-5 5 5-5 5"/></svg>
+        <span>Run</span>
+      </button>
+      <div class="more-wrap">
+        <button id="btn-more" class="btn btn-ghost" aria-haspopup="true" aria-expanded="false" title="More actions">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+        <div id="more-menu" class="menu" role="menu" hidden>
+          <button role="menuitem" id="mi-asm">Download .asm</button>
+          <button role="menuitem" id="mi-tl">Download .tl source</button>
+          <button role="menuitem" id="mi-copy-src">Copy source</button>
+          <button role="menuitem" id="mi-clear">Clear everything</button>
+          <hr>
+          <button role="menuitem" id="mi-help">Keyboard shortcuts</button>
+          <button role="menuitem" id="mi-about">About TraceCode Studio</button>
+        </div>
+      </div>
+      <button id="btn-theme" class="btn btn-ghost icon-btn" title="Switch theme" aria-label="Switch theme"></button>
+    </div>
+  </header>
+
+  <section class="pipeline-wrap" aria-label="Compiler pipeline">
+    <div id="band-idle" class="band-idle">
+      <h1 class="band-title">TraceCode Studio</h1>
+      <p class="band-sub">Write TraceLang code below, press Compile, and watch each phase pass or fail. Every number shown comes from the compiler.</p>
+    </div>
+    <div id="band-pipe" class="band-pipe" hidden>
+      <div class="pipe-head">
+        <span class="section-title">Compiler pipeline</span>
+        <span id="pipeline-note" class="muted small"></span>
+      </div>
+      <div class="pipeline" id="pipeline"></div>
+      <div id="stage-detail" class="stage-detail" hidden>
+        <div class="sd-head">
+          <div class="sd-title-row">
+            <span id="sd-title" class="sd-title"></span>
+            <span id="sd-state" class="chip"></span>
+          </div>
+          <button id="sd-open" class="btn btn-mini">Open output</button>
+          <button id="sd-close" class="btn btn-mini btn-ghost" aria-label="Close stage details">Close</button>
+        </div>
+        <p id="sd-desc" class="sd-desc"></p>
+        <ul id="sd-facts" class="sd-facts"></ul>
+        <div id="sd-errors"></div>
+        <pre id="sd-preview" class="sd-preview" hidden></pre>
+      </div>
+    </div>
+  </section>
+
+  <main id="workbench" class="workbench">
+    <section class="pane pane-editor" id="pane-editor" aria-label="Source editor">
+      <header class="pane-head">
+        <span class="pane-name">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>
+          program.tl
+        </span>
+        <span id="sample-info" class="sample-info"></span>
+        <span class="pane-tools">
+          <span id="cursor" class="muted small mono">Ln 1, Col 1</span>
+          <button id="btn-copy-src" class="btn btn-mini" title="Copy the source code">Copy</button>
+        </span>
+      </header>
+      <div class="editor">
+        <div id="gutter" class="gutter" aria-hidden="true"></div>
+        <div class="code-wrap">
+          <pre id="hl" class="hl" aria-hidden="true"></pre>
+          <textarea id="src" spellcheck="false" wrap="off" aria-label="TraceLang source"></textarea>
+        </div>
+      </div>
+      <footer class="pane-foot small muted">
+        <span id="src-hint">Ctrl+/ comments &middot; Tab indents &middot; Ctrl+Enter compiles</span>
+        <span id="src-link" class="src-link"></span>
+      </footer>
+    </section>
+
+    <div id="splitter" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panels" tabindex="0" title="Drag to resize. Double-click to reset."></div>
+
+    <section class="pane pane-output" aria-label="Analysis outputs">
+      <nav class="tabs" role="tablist" aria-label="Compiler outputs">
+        <div class="tab-group">
+          <span class="group-label">Front end</span>
+          <div class="tab-row">
+          <button class="tab active" role="tab" data-tab="tokens">Tokens</button>
+          <button class="tab" role="tab" data-tab="ast">AST</button>
+          <button class="tab" role="tab" data-tab="graph">Graph</button></div>
+        </div>
+        <div class="tab-group">
+          <span class="group-label">Analysis</span>
+          <div class="tab-row">
+          <button class="tab" role="tab" data-tab="symbols">Symbols</button></div>
+        </div>
+        <div class="tab-group">
+          <span class="group-label">Middle end</span>
+          <div class="tab-row">
+          <button class="tab" role="tab" data-tab="tac">TAC</button>
+          <button class="tab" role="tab" data-tab="optimizer">Optimizer</button></div>
+        </div>
+        <div class="tab-group">
+          <span class="group-label">Back end</span>
+          <div class="tab-row">
+          <button class="tab" role="tab" data-tab="assembly">Assembly</button></div>
+        </div>
+        <div class="tab-group">
+          <span class="group-label">Execute</span>
+          <div class="tab-row">
+          <button class="tab" role="tab" data-tab="terminal">Terminal</button>
+          <button class="tab" role="tab" data-tab="console">Console <span id="err-count" class="badge" hidden></span></button></div>
+        </div>
+        <div class="tab-group">
+          <span class="group-label">Help</span>
+          <div class="tab-row">
+          <button class="tab" role="tab" data-tab="language">Language</button></div>
+        </div>
+      </nav>
+
+      <!-- Tokens -->
+      <div class="panel active" id="panel-tokens" role="tabpanel">
+        <div class="panel-toolbar">
+          <input id="token-filter" class="input" type="search" placeholder="Filter tokens (text or kind)" aria-label="Filter tokens">
+          <span id="tokens-count" class="muted small"></span>
+        </div>
+        <div class="panel-scroll" id="tokens-out"></div>
+      </div>
+
+      <!-- AST as an interactive tree -->
+      <div class="panel" id="panel-ast" role="tabpanel">
+        <div class="panel-toolbar">
+          <button id="ast-expand" class="btn btn-mini">Expand all</button>
+          <button id="ast-collapse" class="btn btn-mini">Collapse all</button>
+          <span id="ast-info" class="muted small"></span>
+          <span class="spacer"></span>
+          <span class="legend-inline small">
+            <i class="cat-dot cat-decl"></i>declaration
+            <i class="cat-dot cat-ctrl"></i>control
+            <i class="cat-dot cat-stmt"></i>statement
+            <i class="cat-dot cat-expr"></i>expression
+          </span>
+        </div>
+        <div class="split-view">
+          <div class="panel-scroll tree-scroll" id="ast-tree" role="tree" aria-label="Abstract syntax tree"></div>
+          <aside class="detail-card panel-scroll" id="ast-explain">
+            <div class="empty-mini">Select a node in the tree to see what it means, its type and where it sits in your source.</div>
+          </aside>
+        </div>
+      </div>
+
+      <!-- Graph -->
+      <div class="panel" id="panel-graph" role="tabpanel">
+        <div class="panel-toolbar">
+          <button id="graph-replay" class="btn btn-mini">Replay animation</button>
+          <span id="graph-info" class="muted small"></span>
+        </div>
+        <div class="panel-scroll">
+          <div id="graph-out" class="graph empty"></div>
+          <p id="graph-note" class="note" hidden></p>
+          <section class="detail-card graph-explain" id="graph-explain">
+            <h4>Explanation</h4>
+            <div id="graph-explain-body" class="muted">The tree grows from the top: the root is Program and each level holds the parts of the level above. Click a node to see what it means and which source line it comes from.</div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Symbols -->
+      <div class="panel" id="panel-symbols" role="tabpanel">
+        <div class="panel-scroll">
+          <div id="symbols-out" class="empty"></div>
+          <p class="small muted">Storage: <code>stack [rbp-8]</code> is a local, <code>stack [rbp+16]</code> a parameter, <code>data g_x</code> a global in .bss, <code>code fn_x</code> a function.</p>
+        </div>
+      </div>
+
+      <!-- TAC -->
+      <div class="panel" id="panel-tac" role="tabpanel">
+        <div class="panel-toolbar">
+          <div class="flow" id="flow"></div>
+        </div>
+        <div class="split-view two-col">
+          <div class="col">
+            <h4>Before optimization</h4>
+            <pre id="tac-out" class="code panel-scroll-fixed empty"></pre>
+          </div>
+          <div class="col">
+            <h4>After optimization</h4>
+            <pre id="tac-opt-out" class="code panel-scroll-fixed empty"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Optimizer -->
+      <div class="panel" id="panel-optimizer" role="tabpanel">
+        <div class="panel-scroll">
+          <div id="report-out" class="empty"></div>
+          <h4>Assembly difference: unoptimized (red) vs optimized (green)</h4>
+          <pre id="asm-diff" class="code diff empty"></pre>
+        </div>
+      </div>
+
+      <!-- Assembly -->
+      <div class="panel" id="panel-assembly" role="tabpanel">
+        <div class="panel-toolbar">
+          <div class="seg" role="group" aria-label="Assembly version">
+            <button class="seg-btn active" data-asm="opt">Optimized</button>
+            <button class="seg-btn" data-asm="plain">Unoptimized</button>
+          </div>
+          <span id="asm-count" class="muted small"></span>
+          <span id="asm-status" class="chip" hidden></span>
+          <span class="spacer"></span>
+          <button id="btn-copy-asm" class="btn btn-mini">Copy</button>
+          <button id="btn-clear-asm" class="btn btn-mini btn-ghost">Clear</button>
+        </div>
+        <div id="asm-note" class="asm-note" hidden></div>
+        <div class="split-view asm-view">
+          <pre id="asm-out" class="code asm empty"></pre>
+          <aside class="detail-card panel-scroll" id="asm-explainer">
+            <h4>Instruction explainer</h4>
+            <div id="asm-explain" class="muted small">Click an instruction to see what it does to registers and memory.</div>
+          </aside>
+        </div>
+      </div>
+
+      <!-- Terminal -->
+      <div class="panel" id="panel-terminal" role="tabpanel">
+        <div class="panel-toolbar">
+          <span id="term-status" class="chip">Not run</span>
+          <span id="term-time" class="muted small"></span>
+          <span class="spacer"></span>
+          <button id="btn-run2" class="btn btn-mini btn-run">Run program</button>
+          <button id="btn-term-clear" class="btn btn-mini btn-ghost">Clear</button>
+        </div>
+        <div class="term-input">
+          <label for="stdin" class="small muted">Program input. Each <code>write</code> reads one line, in order. Input is sent when the program starts.</label>
+          <textarea id="stdin" rows="3" spellcheck="false" placeholder="e.g. Ali&#10;42"></textarea>
+        </div>
+        <div class="term" id="term">
+          <div id="run-out" class="term-body">
+            <div class="term-empty">Press Run to build the program with NASM, link it with ld and execute it here. Compile errors appear in the Console tab.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Console -->
+      <div class="panel" id="panel-console" role="tabpanel">
+        <div class="panel-scroll" id="console-out"></div>
+      </div>
+
+      <!-- Language reference -->
+      <div class="panel" id="panel-language" role="tabpanel">
+        <div class="panel-scroll">
+          <article class="ref">
+            <h2>TraceLang reference</h2>
+            <p>TraceLang is a small Python-style programming language made for this project. It is <strong>not</strong> the Linux or Windows shell. Programs are indented instead of using braces, and every program is wrapped in <code>start</code> and <code>end</code>.</p>
+
+            <h3>Your first program</h3>
+<pre class="code">start
+name: string = "Alina"
+age: int = 20
+show "Hello"
+show name
+show age + 10
+end</pre>
+
+            <h3>Variables and types</h3>
+            <table class="ref-table">
+              <tr><th>Form</th><th>Meaning</th></tr>
+              <tr><td><code>x: int = 10</code></td><td>declare with a type and an initial value</td></tr>
+              <tr><td><code>x: float</code></td><td>declare without a value (must be assigned before it is read)</td></tr>
+              <tr><td><code>x = x + 1</code></td><td>assign a new value</td></tr>
+              <tr><td>types</td><td><code>int</code>, <code>float</code>, <code>string</code>, <code>bool</code></td></tr>
+              <tr><td>int to float</td><td>allowed implicitly. float to int is a type error.</td></tr>
+            </table>
+
+            <h3>Input and output</h3>
+<pre class="code">write name: string     # declare and read a line
+write age: int         # read an integer
+write total            # read into an existing variable
+show name              # print any value followed by a new line</pre>
+            <p class="small muted"><code>write</code> reads <code>int</code>, <code>float</code>, <code>bool</code> (<code>true</code> or <code>false</code>) and <code>string</code>.</p>
+
+            <h3>Operators (highest binds tightest)</h3>
+            <table class="ref-table">
+              <tr><th>Group</th><th>Operators</th><th>Notes</th></tr>
+              <tr><td>unary</td><td><code>-x</code></td><td>int or float</td></tr>
+              <tr><td>multiply</td><td><code>*  /  %</code></td><td>left to right; <code>%</code> needs int</td></tr>
+              <tr><td>add</td><td><code>+  -</code></td><td>left to right; no string concatenation in v1</td></tr>
+              <tr><td>compare</td><td><code>== != &lt; &gt; &lt;= &gt;=</code></td><td>non-associative: <code>a &lt; b &lt; c</code> is an error</td></tr>
+              <tr><td>not</td><td><code>not x</code></td><td>bool only</td></tr>
+              <tr><td>and</td><td><code>a and b</code></td><td>short-circuit, bool only</td></tr>
+              <tr><td>or</td><td><code>a or b</code></td><td>short-circuit, bool only</td></tr>
+            </table>
+
+            <h3>Conditions and loops</h3>
+<pre class="code">if marks >= 50:
+    show "Pass"
+elif marks >= 40:
+    show "Weak pass"
+else:
+    show "Fail"
+
+i: int = 1
+while i <= 5:
+    show i
+    i = i + 1
+
+for k in 1 to 3:       # inclusive upper bound
+    show k</pre>
+
+            <h3>Functions</h3>
+<pre class="code">function add(a: int, b: int) -> int:
+    result: int = a + b
+    return result
+
+show add(10, 20)
+
+function report(name: string):    # no return type
+    show name</pre>
+            <p class="small muted">Functions are declared at the top level. They can read globals, but to change a value they must return it.</p>
+
+            <h3>Scope</h3>
+            <p>Each <code>if</code>, <code>else</code>, <code>while</code>, <code>for</code> and function has its own scope. An inner variable may reuse an outer name. Using a name that was not declared, or declaring one twice in the same scope, is an error.</p>
+
+            <h3>Comments</h3>
+            <p>A <code>#</code> starts a comment that runs to the end of the line. Indent with spaces only.</p>
+
+            <h3>Compile-time checks</h3>
+            <ul>
+              <li>undeclared and duplicate names</li>
+              <li>type mismatches in assignments, arguments, returns and conditions</li>
+              <li>variables used before they are assigned (both branches of an <code>if</code> are checked)</li>
+              <li>argument count, missing return values, division by a literal zero</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="status" class="status idle">Idle</span>
+    <div id="stats" class="stats" aria-live="polite"></div>
+    <span class="spacer"></span>
+    <span class="muted small hint">Ctrl+K commands &middot; Ctrl+Enter compile &middot; Ctrl+Shift+Enter run</span>
+  </footer>
+
+  <!-- Command palette -->
+  <dialog id="palette" class="palette" aria-label="Command palette">
+    <div class="palette-box">
+      <input id="palette-input" class="palette-input" type="text" placeholder="Type a command, tab or sample name" aria-label="Search commands" autocomplete="off">
+      <ul id="palette-list" class="palette-list" role="listbox"></ul>
+      <div class="palette-foot small muted">
+        <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> move</span>
+        <span><kbd>Enter</kbd> run</span>
+        <span><kbd>Esc</kbd> close</span>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Keyboard shortcuts -->
+  <dialog id="help-dialog" class="dialog" aria-labelledby="help-title">
+    <div class="dialog-head">
+      <h2 id="help-title">Keyboard shortcuts</h2>
+      <button class="btn btn-mini" id="help-close">Close</button>
+    </div>
+    <table class="ref-table">
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Command palette</td></tr>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>Compile</td></tr>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>Run the program</td></tr>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>/</kbd></td><td>Comment or uncomment the selected lines</td></tr>
+      <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>Indent or outdent in the editor</td></tr>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd></td><td>Switch between dark and light theme</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Close a dialog or menu</td></tr>
+    </table>
+  </dialog>
+
+  <dialog id="about-dialog" class="dialog about" aria-labelledby="about-title">
+    <div class="dialog-head">
+      <div class="about-logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="8" fill="#8b5cf6"/><path d="M10 11h12M16 11v11M12 22h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div>
+        <h2 id="about-title">TraceCode Studio</h2>
+        <p class="muted">A visual compiler workbench for the TraceLang programming language.</p>
+      </div>
+      <button class="btn btn-mini" id="about-close">Close</button>
+    </div>
+
+    <p>Write a TraceLang program and watch it pass through every compiler phase: lexical analysis, syntax analysis, semantic checks, symbol table, intermediate code, optimization and x86-64 code generation. The program is then assembled, linked and run on this machine.</p>
+
+    <h4>Architecture</h4>
+    <ol class="about-steps">
+      <li><b>Lexer</b> (Flex): characters to tokens, with INDENT and DEDENT</li>
+      <li><b>Parser</b> (Bison): tokens to an abstract syntax tree (AST) with operator precedence</li>
+      <li><b>Semantic analysis</b>: types, scopes and definite assignment</li>
+      <li><b>Symbol table</b> and <b>three-address code</b> (TAC)</li>
+      <li><b>Optimizer</b>: folding, propagation, simplification, common subexpressions, dead code</li>
+      <li><b>Code generator</b>: NASM x86-64 assembly, assembled with NASM and linked with ld</li>
+    </ol>
+
+    <h4>Technology</h4>
+    <div class="tech-chips">
+      <span class="chip-t">C11</span><span class="chip-t">Flex</span><span class="chip-t">Bison</span>
+      <span class="chip-t">NASM</span><span class="chip-t">GNU ld</span><span class="chip-t">Python 3</span>
+      <span class="chip-t">HTML / CSS / JavaScript</span><span class="chip-t">Graphviz</span>
+    </div>
+
+    <p class="small muted">Course project: Compiler Construction. Running a program executes a native binary on the machine where the server runs, so use the server only on your own computer.</p>
+  </dialog>
+
+
+  <div id="side-scrim" class="side-scrim" hidden></div>
+  <aside id="side" class="side" aria-label="Saved programs and settings">
+    <header class="side-head">
+      <div class="side-tabs" role="tablist">
+        <button class="side-tab active" role="tab" data-side="programs" aria-selected="true">Saved programs</button>
+        <button class="side-tab" role="tab" data-side="settings" aria-selected="false">Settings</button>
+      </div>
+      <button class="btn btn-mini btn-ghost icon-btn" id="side-close" aria-label="Close the panel">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+
+    <section id="side-programs" class="side-body" role="tabpanel">
+      <form class="side-save" id="prog-form">
+        <input id="prog-name" class="input" maxlength="60" placeholder="Name for this program" aria-label="Program name">
+        <button class="btn btn-primary btn-mini" id="prog-save" type="submit">Save</button>
+      </form>
+      <div class="side-actions">
+        <label class="btn btn-mini" for="prog-import">Import .tl</label>
+        <input type="file" id="prog-import" accept=".tl,text/plain" hidden>
+        <span class="muted small" id="prog-count"></span>
+      </div>
+      <ul id="prog-list" class="prog-list" aria-label="Saved programs"></ul>
+      <p class="small muted side-note">Saved in this browser. Export a program as a .tl file to keep a copy or move it to another computer.</p>
+    </section>
+
+    <section id="side-settings" class="side-body" role="tabpanel" hidden>
+      <div class="set-row col">
+        <div class="set-text">
+          <div class="set-title">Font size <span id="set-font-val" class="mono"></span></div>
+          <div class="set-desc">Applies to the editor and the code in the output panels.</div>
+        </div>
+        <input type="range" id="set-font" min="12" max="18" step="0.5" aria-label="Font size">
+        <pre id="font-preview" class="font-preview" aria-hidden="true">start
+  show "Hello"
+end</pre>
+      </div>
+      <button id="set-reset" class="btn btn-mini">Restore defaults</button>
+    </section>
+  </aside>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
